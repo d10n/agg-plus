@@ -1,7 +1,11 @@
-# agg - asciinema gif generator
+# agg-plus - asciinema gif generator with extra features
 
-__agg__ is a command-line tool for generating animated GIF files from terminal
-session recordings.
+__agg-plus__ is a command-line tool for generating animated GIF files from
+terminal session recordings. [__agg-plus__](https://github.com/d10n/agg-plus)
+is a fork of [agg](https://github.com/asciinema/agg) with support for
+configurable hinting and antialiasing, to improve legibility and to reduce file
+sizes, as the agg maintainer [does not want these
+features](https://github.com/asciinema/agg/pull/117#issuecomment-4582661204).
 
 It supports conversion from
 [asciicast](https://github.com/asciinema/asciinema/blob/master/doc/asciicast-v3.md)
@@ -10,9 +14,12 @@ It uses Kornel Lesiński's excellent
 [gifski](https://github.com/ImageOptim/gifski) library to produce optimized,
 high quality GIF output with accurate frame timing.
 
-Example GIF file generated with agg:
+Example GIF file generated with agg-plus:
 
-![Example GIF file generated with agg](demo.gif)
+| antialiasing on, hinting off | antialiasing off, hinting on |
+|------------------------------|------------------------------|
+| ![antialiased](demo.gif)     |                              |
+
 
 Notable features:
 
@@ -31,6 +38,7 @@ Notable features:
   with sensible cross-platform defaults and implicit fallbacks for symbols,
   including automatic Nerd Font symbols rendering,
 - configurable font size and line height,
+- configurable font hinting and antialiasing,
 - additional font directory support via `--font-dir` for fonts outside standard
   system locations,
 - color emoji rendering with support for Apple Color Emoji, Noto Color Emoji,
@@ -54,60 +62,55 @@ Building from source requires [Rust](https://www.rust-lang.org/) compiler
 manager](https://doc.rust-lang.org/cargo/). You can install both with
 [rustup](https://rustup.rs/).
 
-To download source code, build agg binary and install it in `$HOME/.cargo/bin`
+To download source code, build agg-plus binary and install it in `$HOME/.cargo/bin`
 run:
 
 ```bash
-cargo install --git https://github.com/asciinema/agg
+cargo install --git https://github.com/d10n/agg-plus
 ```
 
 You need to ensure `$HOME/.cargo/bin` is in your shell's `$PATH`.
 
-Alternatively, you can manually download source code and build agg binary with:
+Alternatively, you can manually download source code and build agg-plus binary with:
 
 ```bash
-git clone https://github.com/asciinema/agg
-cd agg
+git clone https://github.com/d10n/agg-plus
+cd agg-plus
 cargo build --release
 ```
 
 This produces an executable file in _release mode_ (`--release`) at
-`target/release/agg`. There are no other build artifacts so you can copy the
+`target/release/agg-plus`. There are no other build artifacts so you can copy the
 binary to a directory in your `$PATH`.
 
 ### Building with Docker
 
 Alternatively, if you have Docker, Podman or another Docker-compatible tool
-installed you can use it to build agg container image. This doesn't require Rust
+installed you can use it to build agg-plus container image. This doesn't require Rust
 toolchain installed on your machine.
 
 Build the image with the following command:
 
 ```sh
-docker build -t agg .
+docker build -t agg-plus .
 ```
 
-Then run agg like this:
+Then run agg-plus like this:
 
 ```sh
-docker run --rm -u $(id -u):$(id -g) -v $PWD:/data agg demo.cast demo.gif
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/data agg-plus demo.cast demo.gif
 ```
 
 If you use Podman in root-less mode:
 
 ```sh
-podman run --rm -v $PWD:/data agg demo.cast demo.gif
+podman run --rm -v $PWD:/data agg-plus demo.cast demo.gif
 ```
-
-## Consulting
-
-If you're interested in customization of agg or any other asciinema component to
-for your corporate needs, check [asciinema consulting
-services](https://docs.asciinema.org/consulting/).
 
 ## License
 
-© 2022 Marcin Kulik.
+Code from upstream is copyright © 2022 Marcin Kulik.
+Improvements are copyright d10n and possible future agg-plus contributors.
 
 
 All code is licensed under the GPL, v3 or later. See [LICENSE](./LICENSE) file

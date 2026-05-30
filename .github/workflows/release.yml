@@ -93,11 +93,11 @@ jobs:
 
       - name: Strip binary
         if: matrix.strip
-        run: ${{ matrix.strip }} target/${{ matrix.target }}/release/agg${{ matrix.binary_ext }}
+        run: ${{ matrix.strip }} target/${{ matrix.target }}/release/agg-plus${{ matrix.binary_ext }}
 
       - name: Upload the binary to the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mv target/${{ matrix.target }}/release/agg${{ matrix.binary_ext }} target/release/agg-${{ matrix.target }}${{ matrix.binary_ext }}
-          gh release upload ${{ github.ref_name }} target/release/agg-${{ matrix.target }}${{ matrix.binary_ext }}
+          mv target/${{ matrix.target }}/release/agg-plus${{ matrix.binary_ext }} target/release/agg-plus-${{ matrix.target }}${{ matrix.binary_ext }}
+          gh release upload ${{ github.ref_name }} target/release/agg-plus-${{ matrix.target }}${{ matrix.binary_ext }}

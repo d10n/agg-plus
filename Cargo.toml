@@ -1,11 +1,11 @@
 [package]
 name = "agg"
 version = "1.9.0"
-authors = ["Marcin Kulik <m@ku1ik.com>"]
+authors = ["Marcin Kulik <m@ku1ik.com>", "d10n <david@bitinvert.com>"]
 edition = "2021"
-homepage = "https://docs.asciinema.org/manual/agg/"
-repository = "https://github.com/asciinema/agg"
-description = "asciinema gif generator"
+homepage = "https://github.com/d10n/agg-plus"
+repository = "https://github.com/d10n/agg-plus"
+description = "asciinema gif generator with extra features"
 license = "GPL-3.0-or-later"
 
 include = [
@@ -22,6 +22,10 @@ include = [
 
 # MSRV
 rust-version = "1.85.0"
+
+[[bin]]
+name = "agg-plus"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.102"

@@ -2,9 +2,9 @@ name: "Build Nix package"
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "plus"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "plus"]
 
 jobs:
   build:
