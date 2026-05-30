@@ -56,6 +56,15 @@ Notable features:
 Check out the [agg docs](https://docs.asciinema.org/manual/agg/) for
 installation and usage overview.
 
+## Installation
+
+* Precompiled binaries for Linux and mac are available on the releases page at
+  https://github.com/d10n/agg-plus/releases
+* For Arch Linux, the AUR has
+  [`asciinema-agg-plus`](https://aur.archlinux.org/packages/asciinema-agg-plus)
+  and
+  [`asciinema-agg-plus-bin`](https://aur.archlinux.org/packages/asciinema-agg-plus-bin)
+
 ## Building
 
 Building from source requires [Rust](https://www.rust-lang.org/) compiler
