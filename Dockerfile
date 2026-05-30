@@ -9,14 +9,14 @@ COPY . .
 # Cache deps across builds; copy the binary out of the (non-layer) cache mount.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/src/target \
-    cargo build --release && cp target/release/agg /agg
+    cargo build --release && cp target/release/agg-plus /agg-plus
 
 FROM debian:trixie-slim
 
-LABEL org.opencontainers.image.authors="m@ku1ik.com, kayvan.sylvan@gmail.com"
-LABEL org.opencontainers.image.source="https://github.com/asciinema/agg"
+LABEL org.opencontainers.image.authors="m@ku1ik.com, kayvan.sylvan@gmail.com, d10n@bitinvert.com"
+LABEL org.opencontainers.image.source="https://github.com/d10n/agg-plus"
 
-# certs for HTTPS casts; monospace fonts for the text glyphs agg doesn't embed.
+# certs for HTTPS casts; monospace fonts for the text glyphs agg-plus doesn't embed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -33,8 +33,8 @@ RUN apt-get update \
         fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /agg /usr/local/bin/agg
+COPY --from=builder /agg-plus /usr/local/bin/agg-plus
 
 WORKDIR /data
 
-ENTRYPOINT [ "/usr/local/bin/agg" ]
+ENTRYPOINT [ "/usr/local/bin/agg-plus" ]
