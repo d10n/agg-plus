@@ -9,6 +9,8 @@ jobs:
   create-release:
     name: Create GH release draft
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v6.0.2
@@ -16,12 +18,16 @@ jobs:
       - name: Create the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create ${{ github.ref_name }} --draft --verify-tag --title ${{ github.ref_name }}
+        run: |
+          gh release view ${{ github.ref_name }} \
+            || gh release create ${{ github.ref_name }} --draft --verify-tag --title ${{ github.ref_name }}
 
   upload-binary:
     needs: create-release
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
 
     strategy:
       matrix:
@@ -96,8 +102,10 @@ jobs:
         run: ${{ matrix.strip }} target/${{ matrix.target }}/release/agg-plus${{ matrix.binary_ext }}
 
       - name: Upload the binary to the release
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir -p target/release
           mv target/${{ matrix.target }}/release/agg-plus${{ matrix.binary_ext }} target/release/agg-plus-${{ matrix.target }}${{ matrix.binary_ext }}
-          gh release upload ${{ github.ref_name }} target/release/agg-plus-${{ matrix.target }}${{ matrix.binary_ext }}
+          gh release upload --clobber ${{ github.ref_name }} target/release/agg-plus-${{ matrix.target }}${{ matrix.binary_ext }}
