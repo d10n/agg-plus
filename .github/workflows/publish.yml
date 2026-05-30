@@ -3,7 +3,7 @@ name: Publish
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "plus-v[0-9]+.[0-9]+.[0-9]+"
 
 env:
   IMAGE_NAME: agg-plus
@@ -36,7 +36,7 @@ jobs:
           flavor: |
             latest=auto
           tags: |
-            type=semver,pattern={{version}}
+            type=match,pattern=plus-v(\d+\.\d+\.\d+),group=1
           labels: |
             runnumber=${{ github.run_id }}
 
