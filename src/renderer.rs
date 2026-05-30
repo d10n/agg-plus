@@ -21,6 +21,9 @@ pub struct Settings {
     pub line_height: f64,
     pub theme: Theme,
     pub bold_is_bright: bool,
+    pub hinting: bool,
+    pub antialias: bool,
+    pub hint_engine: crate::HintEngine,
 }
 
 pub fn resvg<'a>(settings: Settings) -> resvg::ResvgRenderer<'a> {
@@ -610,6 +613,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         };
 
         let mut renderer = resvg(settings);
@@ -662,6 +668,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         };
 
         let mut renderer = swash(settings);
@@ -689,6 +698,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         };
 
         let mut fallback_renderer = swash(settings(make_db(), vec![]));
@@ -714,6 +726,68 @@ mod tests {
         let image = render(&mut renderer, lines.clone(), None);
         assert_rgb_close(cell_center(&image, 0, 11), PALETTE[BRIGHT_RED], 3);
         assert_rgb_close(cell_center(&image, 2, 11), PALETTE[BRIGHT_WHITE], 3);
+    }
+
+    #[test]
+    fn swash_antialias_off_renders_crisp_mono_stems() {
+        // 'm' has three thin vertical stems. With the old "binarize the
+        // smooth-hinted mask at 50%" path, stems whose ink split across two
+        // sub-pixel columns vanished; the mono path grid-fits them onto whole
+        // columns so they survive as separated foreground runs.
+        let lines = lines_for("m");
+
+        let mut aa_on = swash(settings(false));
+        let on_image = render(&mut aa_on, lines.clone(), None);
+
+        let mut aa_off = swash(settings_with_antialias(false));
+        let off_image = render(&mut aa_off, lines.clone(), None);
+
+        // AA on: at least one pixel in the glyph cell is a partial blend that is
+        // neither exactly FG nor exactly BG.
+        assert!(
+            cell_pixels(&on_image, 0, 0).any(|p| p != FG && p != BG),
+            "expected antialiased 'm' to contain an intermediate FG/BG blend",
+        );
+
+        // AA off: every pixel in the glyph cell is exactly FG or exactly BG.
+        for p in cell_pixels(&off_image, 0, 0) {
+            assert!(
+                p == FG || p == BG,
+                "expected non-antialiased 'm' pixels to be exactly FG or BG, got {p:?}",
+            );
+        }
+
+        // AA off: a body row of the cell shows the three separated vertical
+        // stems (>= 3 distinct foreground runs). The old in-place binarization
+        // could drop stems here, leaving fewer runs.
+        let max_stems = (1..=9)
+            .map(|tenth| cell_row_fg_runs(&off_image, 0, 0, f64::from(tenth) / 10.0))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_stems >= 3,
+            "expected aliased 'm' to keep three vertical stems, found at most {max_stems}",
+        );
+    }
+
+    #[test]
+    fn swash_antialias_off_shares_a_baseline() {
+        // The mono path rasterizes through zeno, whose BottomLeft `placement.top`
+        // is only correct once the mask has been sized. It flips glyphs below
+        // the baseline by their own height, so letters of different heights stop
+        // sharing a baseline. 'l' (ascender) and 'x' (x-height) both rest on the
+        // baseline, so their lowest ink must land on the same row.
+        let mut renderer = swash(settings_with_antialias(false));
+        let image = render(&mut renderer, lines_for("lx"), None);
+
+        let l_baseline = cell_bottom_fg_row(&image, 0, 0);
+        let x_baseline = cell_bottom_fg_row(&image, 1, 0);
+
+        assert_eq!(
+            l_baseline, x_baseline,
+            "expected 'l' and 'x' to share a baseline (rows {l_baseline:?} vs {x_baseline:?})",
+        );
+        assert!(l_baseline.is_some(), "expected both glyphs to paint ink");
     }
 
     #[test]
@@ -749,6 +823,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         };
 
         let mut renderer = swash(settings);
@@ -780,6 +857,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         };
 
         let mut renderer = swash(settings);
@@ -821,6 +901,16 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
+        }
+    }
+
+    fn settings_with_antialias(antialias: bool) -> Settings {
+        Settings {
+            antialias,
+            ..settings(false)
         }
     }
 
@@ -837,6 +927,9 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
+            hinting: true,
+            antialias: true,
+            hint_engine: crate::HintEngine::Auto,
         }
     }
 
@@ -886,6 +979,79 @@ mod tests {
 
     fn cell_center(image: &ImgVec<RGBA8>, col: usize, row: usize) -> RGB8 {
         cell_pixel(image, col, row, 0.5, 0.5)
+    }
+
+    /// Iterate the RGB values of every pixel within a single terminal cell,
+    /// accounting for the renderers' 1-col / 0.5-row padding.
+    fn cell_pixels(
+        image: &ImgVec<RGBA8>,
+        col: usize,
+        row: usize,
+    ) -> impl Iterator<Item = RGB8> + '_ {
+        let cell_width = image.width() as f64 / (COLS + 2) as f64;
+        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
+        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
+        let x_r = ((1.0 + (col + 1) as f64) * cell_width).round() as usize;
+        let y_t = ((0.5 + row as f64) * cell_height).round() as usize;
+        let y_b = ((0.5 + (row + 1) as f64) * cell_height).round() as usize;
+        let width = image.width();
+
+        (y_t..y_b).flat_map(move |y| {
+            (x_l..x_r).map(move |x| {
+                let px = image.buf()[y * width + x];
+                RGB8::new(px.r, px.g, px.b)
+            })
+        })
+    }
+
+    /// Count runs of exact-foreground pixels along one horizontal scanline of a
+    /// cell, sampled at `y_ratio` down the cell. Each run corresponds to a
+    /// vertical stroke crossing that row.
+    fn cell_row_fg_runs(image: &ImgVec<RGBA8>, col: usize, row: usize, y_ratio: f64) -> usize {
+        let cell_width = image.width() as f64 / (COLS + 2) as f64;
+        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
+        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
+        let x_r = ((1.0 + (col + 1) as f64) * cell_width).round() as usize;
+        let y = ((0.5 + row as f64 + y_ratio) * cell_height).round() as usize;
+        let width = image.width();
+
+        let mut runs = 0;
+        let mut in_run = false;
+
+        for x in x_l..x_r {
+            let px = image.buf()[y * width + x];
+            let is_fg = RGB8::new(px.r, px.g, px.b) == FG;
+
+            if is_fg && !in_run {
+                runs += 1;
+            }
+
+            in_run = is_fg;
+        }
+
+        runs
+    }
+
+    /// Return the lowest image row containing a 100% foreground pixel within a
+    /// cell's column span, where the glyph's ink bottoms out.
+    /// `None` when the cell has no foreground ink.
+    fn cell_bottom_fg_row(image: &ImgVec<RGBA8>, col: usize, row: usize) -> Option<usize> {
+        let cell_width = image.width() as f64 / (COLS + 2) as f64;
+        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
+        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
+        let x_r = ((1.0 + (col + 1) as f64) * cell_width).round() as usize;
+        // Span the whole cell height plus a little slack for descenders/ascenders
+        // that overflow the nominal cell box.
+        let y_t = (row as f64 * cell_height).round() as usize;
+        let y_b = (((row + 2) as f64) * cell_height).round() as usize;
+        let width = image.width();
+
+        (y_t..y_b.min(image.height())).rev().find(|&y| {
+            (x_l..x_r).any(|x| {
+                let px = image.buf()[y * width + x];
+                RGB8::new(px.r, px.g, px.b) == FG
+            })
+        })
     }
 
     fn assert_rgb_close(actual: RGB8, expected: RGB8, threshold: u16) {

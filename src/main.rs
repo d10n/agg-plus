@@ -141,6 +141,18 @@ struct Cli {
     #[clap(long, default_value_t = agg::DEFAULT_BOLD_IS_BRIGHT)]
     bold_is_bright: bool,
 
+    /// Enable font hinting (swash renderer only)
+    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_HINTING)]
+    hinting: bool,
+
+    /// Enable font glyph antialiasing (swash renderer only; affects text glyphs, not emoji or box-drawing)
+    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_ANTIALIAS)]
+    antialias: bool,
+
+    /// Hinting engine for the aliased path (swash renderer, --antialias false only)
+    #[clap(long, value_enum, default_value_t = agg::HintEngine::default())]
+    hint_engine: agg::HintEngine,
+
     /// Adjust playback speed
     #[clap(long, default_value_t = agg::DEFAULT_SPEED)]
     speed: f64,
@@ -249,6 +261,7 @@ fn main() -> Result<()> {
         .init();
 
     let config = agg::Config {
+        antialias: cli.antialias,
         bold_is_bright: cli.bold_is_bright,
         cols: cli.cols,
         emoji_font_family: cli.emoji_font_family,
@@ -256,6 +269,8 @@ fn main() -> Result<()> {
         font_family: cli.font_family,
         font_size: cli.font_size,
         fps_cap: cli.fps_cap,
+        hint_engine: cli.hint_engine,
+        hinting: cli.hinting,
         idle_time_limit: cli.idle_time_limit,
         last_frame_duration: cli.last_frame_duration,
         line_height: cli.line_height,
