@@ -16,11 +16,13 @@ high quality GIF output with accurate frame timing.
 
 Example GIF file generated with agg-plus:
 
-| antialiasing on, hinting off                      | antialiasing off, hinting on                                |
-|---------------------------------------------------|-------------------------------------------------------------|
-| `14.9 MiB`, 2730x1610<br>![demo, 15MiB](demo.gif) | `4.96 MiB`, 2730x1610<br>![demo, 5MiB](demo-no-aa.gif)      |
-|                                                   | `573 KiB`, 546x323<br>![demo, 0.6MiB](demo-no-aa-small.gif) |
+| large resolution                                               |                                                               |
+|----------------------------------------------------------------|---------------------------------------------------------------|
+| `3.57 MiB`, 1529x902, AA default<br>![demo, 3.57MiB](demo.gif) | `2.75 MiB`, 1529x902, AA 3<br>![demo, 2.75MiB](demo-aa-3.gif) |
 
+| small resolution                                                   |                                                                    |
+|--------------------------------------------------------------------|--------------------------------------------------------------------|
+| `0.81 MiB`, 655x386, AA 3<br>![demo, 0.81MiB](demo-small-aa-3.gif) | `0.65 MiB`, 655x386, AA 2<br>![demo, 0.65MiB](demo-small-aa-2.gif) |
 
 Notable features:
 
