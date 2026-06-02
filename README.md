@@ -2,10 +2,10 @@
 
 __agg-plus__ is a command-line tool for generating animated GIF files from
 terminal session recordings. [__agg-plus__](https://github.com/d10n/agg-plus)
-is a fork of [agg](https://github.com/asciinema/agg) with support for
-configurable hinting and antialiasing, to improve legibility and to reduce file
-sizes, as the agg maintainer [does not want these
-features](https://github.com/asciinema/agg/pull/117#issuecomment-4582661204).
+is a fork of [agg](https://github.com/asciinema/agg) with improved hinting, to
+improve legibility at small font sizes, to reduce the need for bloated files,
+as the agg maintainer [does not want this
+feature](https://github.com/asciinema/agg/pull/117#issuecomment-4582661204).
 
 It supports conversion from
 [asciicast](https://github.com/asciinema/asciinema/blob/master/doc/asciicast-v3.md)
