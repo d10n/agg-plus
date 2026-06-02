@@ -105,9 +105,11 @@ Set font antialiasing quantization levels for the swash renderer.
 
 The value is the number of alpha coverage levels kept in rendered text glyph
 masks. Higher values preserve smoother font edges and usually increase GIF
-size. The value `off` is accepted as an alias for 2, the fully-aliased setting:
-text glyphs are rasterized through a grid-fit (mono-hinted) path and then
-binarized, so thin vertical stems survive (see --font-hinting and --hint-engine).";
+size. The value `off` is accepted as an alias for 2, which binarizes the mask.
+
+Independently of this, small text is rasterized through a grid-fit (mono-hinted)
+path so vertical stems stay crisp and survive binarization (see --font-hinting
+and --hint-engine); larger text uses swash's smooth rasterizer.";
 
 fn parse_font_aa_levels(s: &str) -> Result<u16, String> {
     if s == "off" {
@@ -182,7 +184,7 @@ struct Cli {
     #[clap(long, default_value_t = agg::DEFAULT_BOLD_IS_BRIGHT)]
     bold_is_bright: bool,
 
-    /// Hinting engine for the aliased path (swash renderer, --font-aa 2 only)
+    /// Hinting engine for the swash grid-fit path (small font sizes only)
     #[clap(long, value_enum, default_value_t = agg::HintEngine::default())]
     hint_engine: agg::HintEngine,
 

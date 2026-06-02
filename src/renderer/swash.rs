@@ -24,6 +24,14 @@ type FontFace = (String, bool, bool);
 const POWERLINE_NUDGE: f64 = 0.02;
 const POWERLINE_SAMPLES: usize = 4;
 
+// Above this font size the swash smooth (vertical-only hinted) mask already
+// renders vertical stems at full coverage, so the both-axes grid-fit path adds
+// only autohinter distortion. At or below it, sub-pixel stems render soft and
+// grid-fitting sharpens them. Crossover for JetBrains Mono 'm' sits between
+// 20px (weakest stem ~74% coverage) and 24px (full);
+// see the gate in `rasterize_font_glyph`.
+const MONO_HINT_MAX_FONT_SIZE: usize = 20;
+
 const GLYPH_SOURCES: &[Source] = &[
     Source::ColorOutline(0),
     Source::ColorBitmap(StrikeWith::BestFit),
@@ -190,19 +198,19 @@ fn build_mono_hinter(
     .ok()
 }
 
-/// Rasterize a glyph as a grid-fit coverage mask with
-/// skrifa and zeno (the path used at `--font-aa 2`, the fully-aliased setting).
+/// Rasterize a glyph as a grid-fit coverage mask with skrifa and zeno
+/// (the path used for small font sizes; see `MONO_HINT_MAX_FONT_SIZE`).
 ///
 /// Swash only exposes smooth (vertical-only) hinting, which leaves thin
-/// vertical stems at sub-pixel x positions. Binarizing that smooth mask at 50%
-/// then erases stems whose ink splits across two columns (missing verticals of 'm').
+/// vertical stems at sub-pixel x positions — soft at small sizes, and dropped
+/// entirely when `quantize_alpha` binarizes at 50% (missing verticals of 'm').
 /// Mono hinting grid-fits both axes so each stem lands on a whole pixel column
 /// and survives binarization.
 ///
 /// `hinter` is the cached mono hinter (see [`build_mono_hinter`]);
-/// `None` draws the outline unhinted (used when `--hinting` is off). Returns
-/// `None` for glyphs with no scalable outline, so the caller can fall back to
-/// swash for emoji.
+/// `None` draws the outline unhinted (used when `--font-hinting` is off).
+/// Returns `None` for glyphs with no scalable outline, so the caller can fall
+/// back to swash for emoji.
 fn rasterize_mono_glyph(
     font_data: &[u8],
     face_index: u32,
@@ -442,22 +450,21 @@ impl SwashRenderer {
 
     fn rasterize_font_glyph(&mut self, font_id: fontdb::ID, ch: char) -> Option<Image> {
         let font_size = self.font_size as f32;
-        let font_aa_levels = self.font_aa_levels;
         let hinting = self.hinting;
         let engine = self.hint_engine;
         let scale_context = &mut self.scale_context;
         let hinter_cache = &mut self.hinter_cache;
 
+        // Grid-fitting only sharpens small text
+        let use_mono = self.font_size <= MONO_HINT_MAX_FONT_SIZE;
+
         self.font_db
             .with_face_data(font_id, |font_data, face_index| {
-                // At the fully-aliased level (2), `quantize_alpha` binarizes the
-                // coverage mask at paint time. Swash's vertical-only hinting leaves
-                // thin vertical stems at sub-pixel x, so binarizing its mask erases
-                // stems split across two columns. Rasterize a grid-fit (both-axes
-                // mono-hinted) outline instead so each stem lands on a whole column
-                // and survives binarization. Color/bitmap glyphs have no scalable
-                // outline here and fall through to swash below.
-                if font_aa_levels == 2 {
+                // Rasterize a grid-fit (both-axes monochrome-hinted) outline so each
+                // vertical stem lands on a whole pixel column.
+                // Color/bitmap glyphs have no scalable outline here
+                // and fall through to swash below.
+                if use_mono {
                     let hinter = if hinting {
                         hinter_cache
                             .entry(font_id)

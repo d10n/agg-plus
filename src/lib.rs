@@ -96,7 +96,7 @@ pub enum Renderer {
     Resvg,
 }
 
-/// Hinting engine used for the aliased (`--font-aa 2`) swash path, which
+/// Hinting engine used for the swash grid-fit path (small font sizes), which
 /// grid-fits glyph outlines with skrifa's `Target::Mono` before rasterizing.
 #[derive(Clone, Copy, ValueEnum, Default, PartialEq, Debug)]
 pub enum HintEngine {
