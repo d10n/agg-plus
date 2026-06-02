@@ -5,8 +5,9 @@ use std::hash::{Hash, Hasher};
 use imgref::ImgVec;
 use log::debug;
 use rgb::RGBA8;
+use skrifa::bitmap::BitmapFormat;
 use skrifa::outline::{DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, Target};
-use skrifa::prelude::{LocationRef, Size};
+use skrifa::prelude::{GlyphId, LocationRef, Size};
 use skrifa::{FontRef as SkrifaFontRef, MetadataProvider};
 use swash::scale::image::{Content, Image};
 use swash::scale::{Render, ScaleContext, Source, StrikeWith};
@@ -206,6 +207,23 @@ fn build_mono_hinter(
     .ok()
 }
 
+/// Whether `glyph_id` has a *color* representation in this face — a COLR layer
+/// glyph or a color bitmap strike (sbix/CBDT). Color glyphs must defer to
+/// swash's color path rather than being rasterized as a monochrome mask.
+fn glyph_has_color(font: &SkrifaFontRef<'_>, glyph_id: GlyphId, font_size: f32) -> bool {
+    if font.color_glyphs().get(glyph_id).is_some() {
+        return true; // COLR layer glyph
+    }
+
+    let strikes = font.bitmap_strikes();
+    matches!(
+        strikes.format(),
+        Some(BitmapFormat::Sbix | BitmapFormat::Cbdt)
+    ) && strikes
+        .glyph_for_size(Size::new(font_size), glyph_id)
+        .is_some()
+}
+
 /// Rasterize a glyph as a grid-fit coverage mask with skrifa and zeno
 /// (the path used for small font sizes; see `MONO_HINT_MAX_FONT_SIZE`).
 ///
@@ -217,8 +235,8 @@ fn build_mono_hinter(
 ///
 /// `hinter` is the cached mono hinter (see [`build_mono_hinter`]);
 /// `None` draws the outline unhinted (used when `--font-hinting` is off).
-/// Returns `None` for glyphs with no scalable outline, so the caller can fall
-/// back to swash for emoji.
+/// Returns `None` for color glyphs and for glyphs with no scalable outline, so
+/// the caller can fall back to swash for emoji.
 fn rasterize_mono_glyph(
     font_data: &[u8],
     face_index: u32,
@@ -257,6 +275,11 @@ fn rasterize_mono_glyph(
 
     let font = SkrifaFontRef::from_index(font_data, face_index).ok()?;
     let glyph_id = font.charmap().map(ch)?;
+
+    if glyph_has_color(&font, glyph_id, font_size) {
+        return None;
+    }
+
     let outlines = font.outline_glyphs();
     let glyph = outlines.get(glyph_id)?;
 
@@ -1496,6 +1519,23 @@ mod tests {
         assert!(use_mono_path(HintingMode::On, small));
         assert!(!use_mono_path(HintingMode::Off, small));
         assert!(!use_mono_path(HintingMode::Off, large));
+    }
+
+    #[test]
+    fn color_glyphs_skip_the_mono_path() {
+        let emoji =
+            SkrifaFontRef::from_index(include_bytes!("../../fonts/NotoColorEmoji.ttf"), 0).unwrap();
+        let text =
+            SkrifaFontRef::from_index(include_bytes!("../../fonts/JetBrainsMono-Regular.ttf"), 0)
+                .unwrap();
+
+        // Per glyph: an emoji bitmap (here CBDT) defers to swash, while a plain
+        // text outline is grid-fit, so a mixed face still hints its mono glyphs.
+        let emoji_gid = emoji.charmap().map('\u{1F600}').unwrap(); // grinning face
+        let text_gid = text.charmap().map('m').unwrap();
+
+        assert!(glyph_has_color(&emoji, emoji_gid, 16.0));
+        assert!(!glyph_has_color(&text, text_gid, 16.0));
     }
 
     #[test]
