@@ -16,7 +16,7 @@ use zeno::{Command, Format, Mask, Origin, Point};
 use crate::renderer::{color_to_rgb, text_attrs, Renderer, Settings, TextAttrs};
 use crate::terminal::Snapshot;
 use crate::theme::Theme;
-use crate::HintEngine;
+use crate::{HintEngine, HintingMode};
 
 type CharVariant = (char, bool, bool);
 type FontFace = (String, bool, bool);
@@ -31,6 +31,14 @@ const POWERLINE_SAMPLES: usize = 4;
 // 20px (weakest stem ~74% coverage) and 24px (full);
 // see the gate in `rasterize_font_glyph`.
 const MONO_HINT_MAX_FONT_SIZE: usize = 20;
+
+fn use_mono_path(mode: HintingMode, font_size: usize) -> bool {
+    match mode {
+        HintingMode::On => true,
+        HintingMode::Off => false,
+        HintingMode::Auto => font_size <= MONO_HINT_MAX_FONT_SIZE,
+    }
+}
 
 const GLYPH_SOURCES: &[Source] = &[
     Source::ColorOutline(0),
@@ -89,7 +97,7 @@ pub struct SwashRenderer {
     // and reused across glyphs. `None` records a font with no usable outline.
     hinter_cache: HashMap<fontdb::ID, Option<HintingInstance>>,
     bold_is_bright: bool,
-    hinting: bool,
+    hinting: HintingMode,
     hint_engine: HintEngine,
 }
 
@@ -450,13 +458,12 @@ impl SwashRenderer {
 
     fn rasterize_font_glyph(&mut self, font_id: fontdb::ID, ch: char) -> Option<Image> {
         let font_size = self.font_size as f32;
-        let hinting = self.hinting;
         let engine = self.hint_engine;
         let scale_context = &mut self.scale_context;
         let hinter_cache = &mut self.hinter_cache;
 
-        // Grid-fitting only sharpens small text
-        let use_mono = self.font_size <= MONO_HINT_MAX_FONT_SIZE;
+        let use_mono = use_mono_path(self.hinting, self.font_size);
+        let hint_swash = self.hinting != HintingMode::Off;
 
         self.font_db
             .with_face_data(font_id, |font_data, face_index| {
@@ -465,16 +472,12 @@ impl SwashRenderer {
                 // Color/bitmap glyphs have no scalable outline here
                 // and fall through to swash below.
                 if use_mono {
-                    let hinter = if hinting {
-                        hinter_cache
-                            .entry(font_id)
-                            .or_insert_with(|| {
-                                build_mono_hinter(font_data, face_index, font_size, engine)
-                            })
-                            .as_ref()
-                    } else {
-                        None
-                    };
+                    let hinter = hinter_cache
+                        .entry(font_id)
+                        .or_insert_with(|| {
+                            build_mono_hinter(font_data, face_index, font_size, engine)
+                        })
+                        .as_ref();
 
                     if let Some(glyph) =
                         rasterize_mono_glyph(font_data, face_index, ch, font_size, hinter)
@@ -493,7 +496,7 @@ impl SwashRenderer {
                 let mut scaler = scale_context
                     .builder_with_id(font, font_id_key(font_id))
                     .size(font_size)
-                    .hint(hinting)
+                    .hint(hint_swash)
                     .build();
 
                 // Swash returns an empty image when a mapped glyph is in a
@@ -1478,6 +1481,22 @@ impl Renderer for SwashRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hinting_mode_selects_grid_fit_path() {
+        let small = MONO_HINT_MAX_FONT_SIZE;
+        let large = MONO_HINT_MAX_FONT_SIZE + 8;
+
+        // Auto is size-gated.
+        assert!(use_mono_path(HintingMode::Auto, small));
+        assert!(!use_mono_path(HintingMode::Auto, large));
+
+        // On forces grid-fit even above the threshold; Off disables it even below.
+        assert!(use_mono_path(HintingMode::On, large));
+        assert!(use_mono_path(HintingMode::On, small));
+        assert!(!use_mono_path(HintingMode::Off, small));
+        assert!(!use_mono_path(HintingMode::Off, large));
+    }
 
     #[test]
     fn glyph_image_visibility_rejects_empty_images() {

@@ -107,9 +107,9 @@ The value is the number of alpha coverage levels kept in rendered text glyph
 masks. Higher values preserve smoother font edges and usually increase GIF
 size. The value `off` is accepted as an alias for 2, which binarizes the mask.
 
-Independently of this, small text is rasterized through a grid-fit (mono-hinted)
-path so vertical stems stay crisp and survive binarization (see --font-hinting
-and --hint-engine); larger text uses swash's smooth rasterizer.";
+Independently of this, small text has stronger hinting by default. Pass
+`--font-hinting on` to force the stronger hinting at every size, or
+`--font-hinting off` to disable it (see also --hint-engine).";
 
 fn parse_font_aa_levels(s: &str) -> Result<u16, String> {
     if s == "off" {
@@ -164,9 +164,9 @@ struct Cli {
     )]
     font_antialiasing: u16,
 
-    /// Enable font hinting (swash renderer only)
-    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_FONT_HINTING)]
-    font_hinting: bool,
+    /// Font grid-fit hinting policy (swash renderer only): off, auto (small text only), or on (force)
+    #[clap(long, value_enum, default_value_t = agg::DEFAULT_FONT_HINTING)]
+    font_hinting: agg::HintingMode,
 
     /// Use additional font directory; may be specified multiple times
     #[clap(long)]
