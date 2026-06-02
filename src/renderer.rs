@@ -180,21 +180,6 @@ mod tests {
     const RESVG_UND_Y: f64 = 0.82;
     const RASTER_UND_Y: f64 = 0.825;
 
-    // Probe positions for the bold/italic/bold-italic 'M' comparison on row 7.
-    // Empirically chosen so the styled cell paints solid fg ink while the
-    // regular control cell is bg or its stroke's AA edge — see assert_inkier.
-    // All renderers agree on these positions for the same character + font.
-    const M_BOLD_PROBE: (f64, f64) = (0.1, 0.4); // AA edge of regular's left stroke; bold's wider stroke fills here
-    const M_ITALIC_PROBE: (f64, f64) = (0.7, 0.3); // italic shifts the right stroke up-right at this height
-    const M_BOLD_ITALIC_PROBE: (f64, f64) = (0.4, 0.3); // combined width + slant places ink in regular's interior bg
-    const M_STYLED_INK_DIFF: u16 = 150;
-    // Tighter threshold for the bold-italic case: at M_BOLD_ITALIC_PROBE the
-    // BoldItalic face produces a styled-vs-control diff of ~579-602 while a
-    // fallback to italic-only produces ~530-564. 575 differentiates the two
-    // (catches the case where the BoldItalic face fails to register and
-    // fontdb returns the Italic face for the bold-italic SGR).
-    const M_BOLD_ITALIC_INK_DIFF: u16 = 575;
-
     // Probe position for ⭐ on row 9 — center of the left half, where the
     // emoji bitmap paints solid yellow.
     const STAR_BODY_PROBE: (f64, f64) = (0.5, 0.5);
@@ -248,14 +233,32 @@ mod tests {
         assert_rgb_close(cell_pixel(&image, 2, 6, 0.5, RESVG_UND_Y), BG, 3);
 
         // ── bold / italic (row 7) ──
-        assert_inkier(&image, (2, 7), (0, 7), M_BOLD_PROBE, M_STYLED_INK_DIFF);
-        assert_inkier(&image, (4, 7), (0, 7), M_ITALIC_PROBE, M_STYLED_INK_DIFF);
-        assert_inkier(
-            &image,
-            (6, 7),
-            (0, 7),
-            M_BOLD_ITALIC_PROBE,
-            M_BOLD_ITALIC_INK_DIFF,
+        // Styling shows as stroke weight (total ink)
+        // and slant (top-vs-bottom ink centroid);
+        // both signals hold across renderers and survive grid-fitting,
+        // unlike single-pixel AA-edge probes.
+        let regular_ink = cell_total_ink(&image, 0, 7);
+        assert!(
+            cell_total_ink(&image, 2, 7) > regular_ink + 8000,
+            "expected bold 'M' to carry more ink than regular"
+        );
+        // Guards against a BoldItalic-face registration failure where fontdb
+        // falls back to the Italic face, whose ink is similar to regular's.
+        assert!(
+            cell_total_ink(&image, 6, 7) > regular_ink + 4000,
+            "expected bold-italic 'M' to carry more ink than regular"
+        );
+        assert!(
+            cell_slant_shear(&image, 0, 7).abs() < 0.5,
+            "expected regular 'M' to stand upright"
+        );
+        assert!(
+            cell_slant_shear(&image, 4, 7) > 1.0,
+            "expected italic 'M' to slant forward"
+        );
+        assert!(
+            cell_slant_shear(&image, 6, 7) > 1.0,
+            "expected bold-italic 'M' to slant forward"
         );
 
         // ── wide CJK (row 8) ──
@@ -330,14 +333,31 @@ mod tests {
         assert_rgb_close(cell_pixel(&image, 4, 6, 0.5, RASTER_UND_Y), FG, 0);
 
         // ── bold / italic (row 7) ──
-        assert_inkier(&image, (2, 7), (0, 7), M_BOLD_PROBE, M_STYLED_INK_DIFF);
-        assert_inkier(&image, (4, 7), (0, 7), M_ITALIC_PROBE, M_STYLED_INK_DIFF);
-        assert_inkier(
-            &image,
-            (6, 7),
-            (0, 7),
-            M_BOLD_ITALIC_PROBE,
-            M_BOLD_ITALIC_INK_DIFF,
+        // Styling shows as stroke weight (total ink) and slant (top-vs-bottom
+        // ink centroid); both signals hold across renderers and survive
+        // grid-fitting, unlike single-pixel AA-edge probes.
+        let regular_ink = cell_total_ink(&image, 0, 7);
+        assert!(
+            cell_total_ink(&image, 2, 7) > regular_ink + 8000,
+            "expected bold 'M' to carry more ink than regular"
+        );
+        // Guards against a BoldItalic-face registration failure where fontdb
+        // falls back to the Italic face, whose ink ≈ regular's.
+        assert!(
+            cell_total_ink(&image, 6, 7) > regular_ink + 4000,
+            "expected bold-italic 'M' to carry more ink than regular"
+        );
+        assert!(
+            cell_slant_shear(&image, 0, 7).abs() < 0.5,
+            "expected regular 'M' to stand upright"
+        );
+        assert!(
+            cell_slant_shear(&image, 4, 7) > 1.0,
+            "expected italic 'M' to slant forward"
+        );
+        assert!(
+            cell_slant_shear(&image, 6, 7) > 1.0,
+            "expected bold-italic 'M' to slant forward"
         );
 
         // ── wide CJK (row 8) ──
@@ -1155,26 +1175,41 @@ mod tests {
         )
     }
 
-    /// Asserts the styled cell carries at least `min_diff` more ink (distance
-    /// from theme bg) than the control cell at the same probe position. The
-    /// stricter "control = bg, styled = fg" form misses bold/italic differences
-    /// that land on the regular face's AA edge rather than in solid bg.
-    fn assert_inkier(
-        image: &ImgVec<RGBA8>,
-        (styled_col, styled_row): (usize, usize),
-        (control_col, control_row): (usize, usize),
-        (x_ratio, y_ratio): (f64, f64),
-        min_diff: u16,
-    ) {
-        let styled = cell_pixel(image, styled_col, styled_row, x_ratio, y_ratio);
-        let control = cell_pixel(image, control_col, control_row, x_ratio, y_ratio);
-        let styled_ink = rgb_distance(styled, BG);
-        let control_ink = rgb_distance(control, BG);
-        let diff = styled_ink.saturating_sub(control_ink);
-        assert!(
-            diff >= min_diff,
-            "expected styled cell at ({styled_col}, {styled_row}) probed ({x_ratio}, {y_ratio}) to have ≥ {min_diff} more ink than control: styled={styled_ink}, control={control_ink}, diff={diff}",
-        );
+    /// Total foreground ink (summed distance from the background) over a cell.
+    /// Heavier weights (bold) carry more ink, so this distinguishes stroke
+    /// weight even when grid-fitting snaps stems to full coverage and erases the
+    /// AA edges that a single-pixel probe would rely on.
+    fn cell_total_ink(image: &ImgVec<RGBA8>, col: usize, row: usize) -> u32 {
+        cell_rgb_pixels(image, col, row)
+            .map(|p| rgb_distance(p, BG) as u32)
+            .sum()
+    }
+
+    /// Horizontal ink centroid of the cell's top band minus that of its bottom
+    /// band. Near zero for upright glyphs; strongly positive for forward
+    /// italics, whose shear survives grid-fitting.
+    fn cell_slant_shear(image: &ImgVec<RGBA8>, col: usize, row: usize) -> f64 {
+        let band_cx = |y0: f64, y1: f64| -> f64 {
+            let (x_l, x_r, y_t, y_b) = cell_bounds(image, col, row, 0.0, 1.0);
+            let h = (y_b - y_t) as f64;
+            let (rt, rb) = (y_t + (h * y0) as usize, y_t + (h * y1) as usize);
+            let mut wsum = 0.0;
+            let mut w = 0.0;
+            for y in rt..rb {
+                for x in x_l..x_r {
+                    let px = image.buf()[y * image.width() + x];
+                    let ink = rgb_distance(RGB8::new(px.r, px.g, px.b), BG) as f64;
+                    wsum += ink * (x - x_l) as f64;
+                    w += ink;
+                }
+            }
+            if w == 0.0 {
+                0.0
+            } else {
+                wsum / w
+            }
+        };
+        band_cx(0.05, 0.35) - band_cx(0.65, 0.95)
     }
 
     fn assert_nerd_font_symbol_rendered(image: &ImgVec<RGBA8>, background_threshold: u16) {
