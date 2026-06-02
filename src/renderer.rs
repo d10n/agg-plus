@@ -17,12 +17,12 @@ pub struct Settings {
     pub font_db: fontdb::Database,
     pub font_families: Vec<String>,
     pub text_family: String,
+    pub font_aa_levels: u16,
     pub font_size: usize,
     pub line_height: f64,
     pub theme: Theme,
     pub bold_is_bright: bool,
     pub hinting: bool,
-    pub antialias: bool,
     pub hint_engine: crate::HintEngine,
 }
 
@@ -609,12 +609,12 @@ mod tests {
             font_db,
             font_families: vec!["Noto Emoji".to_owned(), "Symbols Nerd Font".to_owned()],
             text_family: "Noto Emoji".to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -664,12 +664,12 @@ mod tests {
             font_db,
             font_families: vec![FONT_FAMILY.to_owned()],
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -694,12 +694,12 @@ mod tests {
             font_db,
             font_families,
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -716,6 +716,54 @@ mod tests {
         assert_images_differ(&fallback_image, &italic_image);
     }
 
+    #[test]
+    fn swash_font_aa_levels_two_binarizes_glyph_coverage() {
+        // 'm' reliably has anti-aliased edge pixels at this size. At two AA
+        // levels, text glyph coverage should collapse to exact fg/bg pixels.
+        let aa_on = render(
+            &mut swash(settings_with_font_aa_levels(crate::FULL_FONT_AA_LEVELS)),
+            lines_for("m"),
+            None,
+        );
+
+        let aa_off = render(
+            &mut swash(settings_with_font_aa_levels(2)),
+            lines_for("m"),
+            None,
+        );
+
+        assert!(
+            cell_rgb_pixels(&aa_on, 0, 0).any(|p| p != FG && p != BG),
+            "expected full-AA 'm' to contain a blended edge pixel",
+        );
+
+        let off_pixels: Vec<_> = cell_rgb_pixels(&aa_off, 0, 0).collect();
+
+        assert!(
+            off_pixels.contains(&FG),
+            "expected two-level 'm' to retain foreground ink",
+        );
+
+        for &p in &off_pixels {
+            assert!(
+                p == FG || p == BG,
+                "expected two-level 'm' pixels to be exactly FG or BG, got {p:?}",
+            );
+        }
+
+        // AA off: a body row of the cell shows the three separated vertical
+        // stems (>= 3 distinct foreground runs).
+        // Naive binarization could drop stems here, leaving fewer runs.
+        let max_stems = (1..=9)
+            .map(|tenth| cell_row_fg_runs(&aa_off, 0, 0, f64::from(tenth) / 10.0))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_stems >= 3,
+            "expected two-level 'm' to keep three vertical stems, found at most {max_stems}",
+        );
+    }
+
     // The col-2 (ANSI white, n=7) assertions probe the n < 8 boundary —
     // they catch off-by-one regressions like `n < 7` that the col-0 (red,
     // n=1) assertion alone would miss.
@@ -729,55 +777,13 @@ mod tests {
     }
 
     #[test]
-    fn swash_antialias_off_renders_crisp_mono_stems() {
-        // 'm' has three thin vertical stems. With the old "binarize the
-        // smooth-hinted mask at 50%" path, stems whose ink split across two
-        // sub-pixel columns vanished; the mono path grid-fits them onto whole
-        // columns so they survive as separated foreground runs.
-        let lines = lines_for("m");
-
-        let mut aa_on = swash(settings(false));
-        let on_image = render(&mut aa_on, lines.clone(), None);
-
-        let mut aa_off = swash(settings_with_antialias(false));
-        let off_image = render(&mut aa_off, lines.clone(), None);
-
-        // AA on: at least one pixel in the glyph cell is a partial blend that is
-        // neither exactly FG nor exactly BG.
-        assert!(
-            cell_pixels(&on_image, 0, 0).any(|p| p != FG && p != BG),
-            "expected antialiased 'm' to contain an intermediate FG/BG blend",
-        );
-
-        // AA off: every pixel in the glyph cell is exactly FG or exactly BG.
-        for p in cell_pixels(&off_image, 0, 0) {
-            assert!(
-                p == FG || p == BG,
-                "expected non-antialiased 'm' pixels to be exactly FG or BG, got {p:?}",
-            );
-        }
-
-        // AA off: a body row of the cell shows the three separated vertical
-        // stems (>= 3 distinct foreground runs). The old in-place binarization
-        // could drop stems here, leaving fewer runs.
-        let max_stems = (1..=9)
-            .map(|tenth| cell_row_fg_runs(&off_image, 0, 0, f64::from(tenth) / 10.0))
-            .max()
-            .unwrap_or(0);
-        assert!(
-            max_stems >= 3,
-            "expected aliased 'm' to keep three vertical stems, found at most {max_stems}",
-        );
-    }
-
-    #[test]
     fn swash_antialias_off_shares_a_baseline() {
         // The mono path rasterizes through zeno, whose BottomLeft `placement.top`
         // is only correct once the mask has been sized. It flips glyphs below
         // the baseline by their own height, so letters of different heights stop
         // sharing a baseline. 'l' (ascender) and 'x' (x-height) both rest on the
         // baseline, so their lowest ink must land on the same row.
-        let mut renderer = swash(settings_with_antialias(false));
+        let mut renderer = swash(settings_with_font_aa_levels(2));
         let image = render(&mut renderer, lines_for("lx"), None);
 
         let l_baseline = cell_bottom_fg_row(&image, 0, 0);
@@ -819,12 +825,12 @@ mod tests {
                 "Noto Emoji".to_owned(),
             ],
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -853,12 +859,12 @@ mod tests {
                 "Noto Emoji".to_owned(),
             ],
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -897,20 +903,13 @@ mod tests {
                 "Noto Color Emoji".to_owned(),
             ],
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
-        }
-    }
-
-    fn settings_with_antialias(antialias: bool) -> Settings {
-        Settings {
-            antialias,
-            ..settings(false)
         }
     }
 
@@ -923,13 +922,20 @@ mod tests {
             font_db,
             font_families: vec![FONT_FAMILY.to_owned()],
             text_family: FONT_FAMILY.to_owned(),
+            font_aa_levels: crate::DEFAULT_FONT_AA_LEVELS,
             font_size: FONT_SIZE,
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
             hinting: true,
-            antialias: true,
             hint_engine: crate::HintEngine::Auto,
+        }
+    }
+
+    fn settings_with_font_aa_levels(font_aa_levels: u16) -> Settings {
+        Settings {
+            font_aa_levels,
+            ..settings(false)
         }
     }
 
@@ -981,25 +987,69 @@ mod tests {
         cell_pixel(image, col, row, 0.5, 0.5)
     }
 
+    /// Determine the bounds of a cell within the provided image.
+    fn cell_bounds(
+        image: &ImgVec<RGBA8>,
+        col: usize,
+        row: usize,
+        x_start_cells: f64,
+        x_end_cells: f64,
+    ) -> (usize, usize, usize, usize) {
+        // Each renderer wraps the grid with 1 cell of horizontal and 0.5
+        // cells of vertical padding on each side.
+        let cell_width = image.width() as f64 / (COLS + 2) as f64;
+        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
+
+        (
+            ((1.0 + col as f64 + x_start_cells) * cell_width).round() as usize,
+            ((1.0 + col as f64 + x_end_cells) * cell_width).round() as usize,
+            ((0.5 + row as f64) * cell_height).round() as usize,
+            ((0.5 + (row + 1) as f64) * cell_height).round() as usize,
+        )
+    }
+
+    /// Retrieve RGBA values of a specific subportion of a cell.
+    fn cell_rgba_pixels(
+        image: &ImgVec<RGBA8>,
+        col: usize,
+        row: usize,
+        x_start_cells: f64,
+        x_end_cells: f64,
+    ) -> impl Iterator<Item = RGBA8> + '_ {
+        let (x_l, x_r, y_t, y_b) = cell_bounds(image, col, row, x_start_cells, x_end_cells);
+        let width = image.width();
+
+        (y_t..y_b).flat_map(move |y| (x_l..x_r).map(move |x| image.buf()[y * width + x]))
+    }
+
     /// Iterate the RGB values of every pixel within a single terminal cell,
     /// accounting for the renderers' 1-col / 0.5-row padding.
-    fn cell_pixels(
+    fn cell_rgb_pixels(
         image: &ImgVec<RGBA8>,
         col: usize,
         row: usize,
     ) -> impl Iterator<Item = RGB8> + '_ {
+        cell_rgba_pixels(image, col, row, 0.0, 1.0).map(|px| RGB8::new(px.r, px.g, px.b))
+    }
+
+    /// Return the lowest image row containing a 100% foreground pixel within a
+    /// cell's column span, where the glyph's ink bottoms out.
+    /// `None` when the cell has no foreground ink.
+    fn cell_bottom_fg_row(image: &ImgVec<RGBA8>, col: usize, row: usize) -> Option<usize> {
         let cell_width = image.width() as f64 / (COLS + 2) as f64;
         let cell_height = image.height() as f64 / (ROWS + 1) as f64;
         let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
         let x_r = ((1.0 + (col + 1) as f64) * cell_width).round() as usize;
-        let y_t = ((0.5 + row as f64) * cell_height).round() as usize;
-        let y_b = ((0.5 + (row + 1) as f64) * cell_height).round() as usize;
+        // Span the whole cell height plus a little slack for descenders/ascenders
+        // that overflow the nominal cell box.
+        let y_t = (row as f64 * cell_height).round() as usize;
+        let y_b = (((row + 2) as f64) * cell_height).round() as usize;
         let width = image.width();
 
-        (y_t..y_b).flat_map(move |y| {
-            (x_l..x_r).map(move |x| {
+        (y_t..y_b.min(image.height())).rev().find(|&y| {
+            (x_l..x_r).any(|x| {
                 let px = image.buf()[y * width + x];
-                RGB8::new(px.r, px.g, px.b)
+                RGB8::new(px.r, px.g, px.b) == FG
             })
         })
     }
@@ -1030,28 +1080,6 @@ mod tests {
         }
 
         runs
-    }
-
-    /// Return the lowest image row containing a 100% foreground pixel within a
-    /// cell's column span, where the glyph's ink bottoms out.
-    /// `None` when the cell has no foreground ink.
-    fn cell_bottom_fg_row(image: &ImgVec<RGBA8>, col: usize, row: usize) -> Option<usize> {
-        let cell_width = image.width() as f64 / (COLS + 2) as f64;
-        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
-        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
-        let x_r = ((1.0 + (col + 1) as f64) * cell_width).round() as usize;
-        // Span the whole cell height plus a little slack for descenders/ascenders
-        // that overflow the nominal cell box.
-        let y_t = (row as f64 * cell_height).round() as usize;
-        let y_b = (((row + 2) as f64) * cell_height).round() as usize;
-        let width = image.width();
-
-        (y_t..y_b.min(image.height())).rev().find(|&y| {
-            (x_l..x_r).any(|x| {
-                let px = image.buf()[y * width + x];
-                RGB8::new(px.r, px.g, px.b) == FG
-            })
-        })
     }
 
     fn assert_rgb_close(actual: RGB8, expected: RGB8, threshold: u16) {
@@ -1174,20 +1202,10 @@ mod tests {
         fg: RGB8,
         bg: RGB8,
     ) {
-        let cell_width = image.width() as f64 / (COLS + 2) as f64;
-        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
-        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
-        let x_r = ((1.0 + col as f64 + 0.25) * cell_width).round() as usize;
-        let y_t = ((0.5 + row as f64) * cell_height).round() as usize;
-        let y_b = ((0.5 + (row + 1) as f64) * cell_height).round() as usize;
+        let has_ink = cell_rgba_pixels(image, col, row, 0.0, 0.25).any(|px| {
+            let rgb = RGB8::new(px.r, px.g, px.b);
 
-        let has_ink = (y_t..y_b).any(|y| {
-            (x_l..x_r).any(|x| {
-                let px = image.buf()[y * image.width() + x];
-                let rgb = RGB8::new(px.r, px.g, px.b);
-
-                rgb_distance(rgb, fg) < rgb_distance(rgb, bg)
-            })
+            rgb_distance(rgb, fg) < rgb_distance(rgb, bg)
         });
 
         assert!(has_ink, "expected glyph ink past the left cell edge");
@@ -1210,20 +1228,10 @@ mod tests {
     // monochrome-outline fallback or a missing glyph.
     #[cfg(target_os = "macos")]
     fn assert_color_emoji_rendered(image: &ImgVec<RGBA8>, col: usize, row: usize, width: usize) {
-        let cell_width = image.width() as f64 / (COLS + 2) as f64;
-        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
-        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
-        let x_r = ((1.0 + (col + width) as f64) * cell_width).round() as usize;
-        let y_t = ((0.5 + row as f64) * cell_height).round() as usize;
-        let y_b = ((0.5 + (row + 1) as f64) * cell_height).round() as usize;
-
-        let saturated = (y_t..y_b).any(|y| {
-            (x_l..x_r).any(|x| {
-                let px = image.buf()[y * image.width() + x];
-                let max = px.r.max(px.g).max(px.b) as i16;
-                let min = px.r.min(px.g).min(px.b) as i16;
-                max - min > 60
-            })
+        let saturated = cell_rgba_pixels(image, col, row, 0.0, width as f64).any(|px| {
+            let max = px.r.max(px.g).max(px.b) as i16;
+            let min = px.r.min(px.g).min(px.b) as i16;
+            max - min > 60
         });
 
         assert!(
@@ -1233,15 +1241,7 @@ mod tests {
     }
 
     fn assert_cell_has_ink(image: &ImgVec<RGBA8>, col: usize, row: usize, width: usize) {
-        let cell_width = image.width() as f64 / (COLS + 2) as f64;
-        let cell_height = image.height() as f64 / (ROWS + 1) as f64;
-        let x_l = ((1.0 + col as f64) * cell_width).round() as usize;
-        let x_r = ((1.0 + (col + width) as f64) * cell_width).round() as usize;
-        let y_t = ((0.5 + row as f64) * cell_height).round() as usize;
-        let y_b = ((0.5 + (row + 1) as f64) * cell_height).round() as usize;
-
-        let inked_pixels = (y_t..y_b)
-            .flat_map(|y| (x_l..x_r).map(move |x| image.buf()[y * image.width() + x]))
+        let inked_pixels = cell_rgba_pixels(image, col, row, 0.0, width as f64)
             .filter(|px| rgb_distance(RGB8::new(px.r, px.g, px.b), BG) > 20)
             .count();
 

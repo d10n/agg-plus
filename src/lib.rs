@@ -21,12 +21,13 @@ use crate::asciicast::Asciicast;
 pub use crate::selection::SelectionSpec;
 
 pub const DEFAULT_BOLD_IS_BRIGHT: bool = false;
-pub const DEFAULT_HINTING: bool = true;
-pub const DEFAULT_ANTIALIAS: bool = true;
+pub const DEFAULT_FONT_HINTING: bool = true;
 pub const DEFAULT_TEXT_FONT_FAMILY: &str =
     "JetBrains Mono,Fira Code,SF Mono,Menlo,Consolas,DejaVu Sans Mono,Liberation Mono";
 pub const DEFAULT_EMOJI_FONT_FAMILY: &str =
     "Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,JoyPixels,Twemoji,Noto Emoji";
+pub const FULL_FONT_AA_LEVELS: u16 = 256;
+pub const DEFAULT_FONT_AA_LEVELS: u16 = 6;
 pub const DEFAULT_FONT_SIZE: usize = 16;
 pub const DEFAULT_FPS_CAP: u8 = 30;
 pub const DEFAULT_LAST_FRAME_DURATION: f64 = 3.0;
@@ -36,16 +37,16 @@ pub const DEFAULT_SPEED: f64 = 1.0;
 pub const DEFAULT_IDLE_TIME_LIMIT: f64 = 5.0;
 
 pub struct Config {
-    pub antialias: bool,
     pub bold_is_bright: bool,
     pub cols: Option<usize>,
     pub emoji_font_family: String,
+    pub font_size: usize,
     pub font_dirs: Vec<String>,
     pub font_family: Option<String>,
-    pub font_size: usize,
+    pub font_aa_levels: u16,
+    pub font_hinting: bool,
+    pub font_hint_engine: HintEngine,
     pub fps_cap: u8,
-    pub hint_engine: HintEngine,
-    pub hinting: bool,
     pub idle_time_limit: Option<f64>,
     pub last_frame_duration: f64,
     pub line_height: f64,
@@ -62,16 +63,16 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            antialias: DEFAULT_ANTIALIAS,
             bold_is_bright: DEFAULT_BOLD_IS_BRIGHT,
             cols: None,
             emoji_font_family: String::from(DEFAULT_EMOJI_FONT_FAMILY),
             font_dirs: vec![],
             font_family: None,
+            font_aa_levels: DEFAULT_FONT_AA_LEVELS,
             font_size: DEFAULT_FONT_SIZE,
             fps_cap: DEFAULT_FPS_CAP,
-            hint_engine: HintEngine::default(),
-            hinting: DEFAULT_HINTING,
+            font_hinting: DEFAULT_FONT_HINTING,
+            font_hint_engine: HintEngine::default(),
             idle_time_limit: None,
             last_frame_duration: DEFAULT_LAST_FRAME_DURATION,
             line_height: DEFAULT_LINE_HEIGHT,
@@ -95,7 +96,7 @@ pub enum Renderer {
     Resvg,
 }
 
-/// Hinting engine used for the aliased (`--antialias false`) swash path, which
+/// Hinting engine used for the aliased (`--font-aa 2`) swash path, which
 /// grid-fits glyph outlines with skrifa's `Target::Mono` before rasterizing.
 #[derive(Clone, Copy, ValueEnum, Default, PartialEq, Debug)]
 pub enum HintEngine {
@@ -239,17 +240,23 @@ pub fn run<I: BufRead, O: Write + Send>(input: I, output: O, config: Config) -> 
         );
     }
 
+    if config.renderer != Renderer::Swash && config.font_aa_levels != DEFAULT_FONT_AA_LEVELS {
+        warn!("--font-aa-levels only affects the swash renderer");
+    }
+
+    if config.renderer != Renderer::Swash && !config.font_hinting {
+        warn!("--hinting only affects the swash renderer");
+    }
+
+    if config.renderer != Renderer::Swash && config.font_hint_engine != HintEngine::default() {
+        warn!("--hint-engine only affects the swash renderer");
+    }
+
     if !fonts.text_family_monospaced {
         warn!(
             "first font family {:?} is not monospaced; terminal cell metrics may be incorrect",
             fonts.text_family
         );
-    }
-
-    if config.renderer == Renderer::Resvg
-        && (!config.hinting || !config.antialias || config.hint_engine != HintEngine::default())
-    {
-        warn!("--hinting/--antialias/--hint-engine only affect the swash renderer; they are ignored with --renderer resvg");
     }
 
     let theme_opt = config
@@ -264,13 +271,13 @@ pub fn run<I: BufRead, O: Write + Send>(input: I, output: O, config: Config) -> 
         font_db: fonts.db,
         font_families: fonts.families,
         text_family: fonts.text_family,
+        font_aa_levels: config.font_aa_levels,
         font_size: config.font_size,
         line_height: config.line_height,
         theme: theme_opt.try_into()?,
         bold_is_bright: config.bold_is_bright,
-        hinting: config.hinting,
-        antialias: config.antialias,
-        hint_engine: config.hint_engine,
+        hinting: config.font_hinting,
+        hint_engine: config.font_hint_engine,
     };
 
     let mut renderer: Box<dyn renderer::Renderer> = match config.renderer {

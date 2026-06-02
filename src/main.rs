@@ -1,5 +1,5 @@
 use std::io;
-use std::num::ParseFloatError;
+use std::num::{ParseFloatError, ParseIntError};
 use std::{fs::File, io::BufReader, iter};
 
 use anyhow::{anyhow, Result};
@@ -100,6 +100,32 @@ fn parse_line_height(s: &str) -> Result<f64, String> {
     Ok(v)
 }
 
+const FONT_AA_LEVELS_LONG_HELP: &str = "\
+Set font antialiasing quantization levels for the swash renderer.
+
+The value is the number of alpha coverage levels kept in rendered text glyph
+masks. Higher values preserve smoother font edges and usually increase GIF
+size. The value `off` is accepted as an alias for 2, the fully-aliased setting:
+text glyphs are rasterized through a grid-fit (mono-hinted) path and then
+binarized, so thin vertical stems survive (see --font-hinting and --hint-engine).";
+
+fn parse_font_aa_levels(s: &str) -> Result<u16, String> {
+    if s == "off" {
+        return Ok(2);
+    }
+
+    let v: u16 = s.parse().map_err(|e: ParseIntError| e.to_string())?;
+
+    if !(2..=agg::FULL_FONT_AA_LEVELS).contains(&v) {
+        return Err(format!(
+            "must be off or 2..={} (got {v})",
+            agg::FULL_FONT_AA_LEVELS
+        ));
+    }
+
+    Ok(v)
+}
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -125,6 +151,21 @@ struct Cli {
     #[clap(long, default_value_t = agg::DEFAULT_FONT_SIZE)]
     font_size: usize,
 
+    /// Set font antialiasing quantization levels
+    #[clap(
+        long,
+        visible_alias = "font-aa",
+        value_name = "LEVELS|off",
+        default_value_t = agg::DEFAULT_FONT_AA_LEVELS,
+        value_parser = parse_font_aa_levels,
+        long_help = FONT_AA_LEVELS_LONG_HELP
+    )]
+    font_antialiasing: u16,
+
+    /// Enable font hinting (swash renderer only)
+    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_FONT_HINTING)]
+    font_hinting: bool,
+
     /// Use additional font directory; may be specified multiple times
     #[clap(long)]
     font_dir: Vec<String>,
@@ -141,15 +182,7 @@ struct Cli {
     #[clap(long, default_value_t = agg::DEFAULT_BOLD_IS_BRIGHT)]
     bold_is_bright: bool,
 
-    /// Enable font hinting (swash renderer only)
-    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_HINTING)]
-    hinting: bool,
-
-    /// Enable font glyph antialiasing (swash renderer only; affects text glyphs, not emoji or box-drawing)
-    #[clap(long, action = ArgAction::Set, default_value_t = agg::DEFAULT_ANTIALIAS)]
-    antialias: bool,
-
-    /// Hinting engine for the aliased path (swash renderer, --antialias false only)
+    /// Hinting engine for the aliased path (swash renderer, --font-aa 2 only)
     #[clap(long, value_enum, default_value_t = agg::HintEngine::default())]
     hint_engine: agg::HintEngine,
 
@@ -261,16 +294,16 @@ fn main() -> Result<()> {
         .init();
 
     let config = agg::Config {
-        antialias: cli.antialias,
         bold_is_bright: cli.bold_is_bright,
         cols: cli.cols,
         emoji_font_family: cli.emoji_font_family,
         font_dirs: cli.font_dir,
         font_family: cli.font_family,
+        font_aa_levels: cli.font_antialiasing,
+        font_hinting: cli.font_hinting,
         font_size: cli.font_size,
         fps_cap: cli.fps_cap,
-        hint_engine: cli.hint_engine,
-        hinting: cli.hinting,
+        font_hint_engine: cli.hint_engine,
         idle_time_limit: cli.idle_time_limit,
         last_frame_duration: cli.last_frame_duration,
         line_height: cli.line_height,
@@ -348,6 +381,42 @@ mod tests {
         assert_eq!(cli.font_family, Some("JetBrains Mono".to_owned()));
         assert_eq!(cli.text_font_family, agg::DEFAULT_TEXT_FONT_FAMILY);
         assert_eq!(cli.emoji_font_family, agg::DEFAULT_EMOJI_FONT_FAMILY);
+    }
+
+    #[test]
+    fn font_aa_levels_accepts_level_count() {
+        let cli = Cli::try_parse_from(["agg", "--font-antialiasing=4", "input.cast", "output.gif"])
+            .unwrap();
+
+        assert_eq!(cli.font_antialiasing, 4);
+    }
+
+    #[test]
+    fn font_aa_levels_accepts_off() {
+        let cli =
+            Cli::try_parse_from(["agg", "--font-antialiasing=off", "input.cast", "output.gif"])
+                .unwrap();
+
+        assert_eq!(cli.font_antialiasing, 2);
+    }
+
+    #[test]
+    fn font_aa_levels_accepts_alias() {
+        let cli = Cli::try_parse_from(["agg", "--font-aa=4", "input.cast", "output.gif"]).unwrap();
+
+        assert_eq!(cli.font_antialiasing, 4);
+    }
+
+    #[test]
+    fn font_aa_levels_rejects_out_of_range_level_count() {
+        let err =
+            match Cli::try_parse_from(["agg", "--font-antialiasing=1", "input.cast", "output.gif"])
+            {
+                Ok(_) => panic!("expected validation error"),
+                Err(err) => err,
+            };
+
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
     }
 
     #[test]
