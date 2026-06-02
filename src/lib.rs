@@ -21,7 +21,7 @@ use crate::asciicast::Asciicast;
 pub use crate::selection::SelectionSpec;
 
 pub const DEFAULT_BOLD_IS_BRIGHT: bool = false;
-pub const DEFAULT_FONT_HINTING: bool = true;
+pub const DEFAULT_FONT_HINTING: HintingMode = HintingMode::Auto;
 pub const DEFAULT_TEXT_FONT_FAMILY: &str =
     "JetBrains Mono,Fira Code,SF Mono,Menlo,Consolas,DejaVu Sans Mono,Liberation Mono";
 pub const DEFAULT_EMOJI_FONT_FAMILY: &str =
@@ -44,7 +44,7 @@ pub struct Config {
     pub font_dirs: Vec<String>,
     pub font_family: Option<String>,
     pub font_aa_levels: u16,
-    pub font_hinting: bool,
+    pub font_hinting: HintingMode,
     pub font_hint_engine: HintEngine,
     pub fps_cap: u8,
     pub idle_time_limit: Option<f64>,
@@ -107,6 +107,21 @@ pub enum HintEngine {
     AutoFallback,
     /// Force the TrueType bytecode interpreter (the font's own hinting program).
     Interpreter,
+}
+
+/// Policy for the swash grid-fit (both-axes mono-hinted) text path:
+/// `Auto` applies it to small text only (sharpening sub-pixel stems),
+/// `On` forces it at every size,
+/// `Off` always uses swash's smooth rasterizer.
+#[derive(Clone, Copy, ValueEnum, Default, PartialEq, Debug)]
+pub enum HintingMode {
+    /// Never grid-fit; use swash's smooth rasterizer.
+    Off,
+    /// Grid-fit small text only (the size-based default).
+    #[default]
+    Auto,
+    /// Always grid-fit, regardless of font size.
+    On,
 }
 
 #[derive(Clone, Debug, ValueEnum, Default)]
@@ -244,8 +259,8 @@ pub fn run<I: BufRead, O: Write + Send>(input: I, output: O, config: Config) -> 
         warn!("--font-aa-levels only affects the swash renderer");
     }
 
-    if config.renderer != Renderer::Swash && !config.font_hinting {
-        warn!("--hinting only affects the swash renderer");
+    if config.renderer != Renderer::Swash && config.font_hinting != DEFAULT_FONT_HINTING {
+        warn!("--font-hinting only affects the swash renderer");
     }
 
     if config.renderer != Renderer::Swash && config.font_hint_engine != HintEngine::default() {

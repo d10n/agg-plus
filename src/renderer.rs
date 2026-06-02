@@ -22,7 +22,7 @@ pub struct Settings {
     pub line_height: f64,
     pub theme: Theme,
     pub bold_is_bright: bool,
-    pub hinting: bool,
+    pub hinting: crate::HintingMode,
     pub hint_engine: crate::HintEngine,
 }
 
@@ -634,7 +634,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -689,7 +689,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -719,7 +719,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -850,7 +850,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -884,7 +884,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         };
 
@@ -928,7 +928,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         }
     }
@@ -947,7 +947,7 @@ mod tests {
             line_height: LINE_HEIGHT,
             theme: theme(),
             bold_is_bright: false,
-            hinting: true,
+            hinting: crate::HintingMode::Auto,
             hint_engine: crate::HintEngine::Auto,
         }
     }
@@ -1173,6 +1173,32 @@ mod tests {
             ((bg.g as u16) * (255 - ratio) / 255) as u8 + ((fg.g as u16) * ratio / 255) as u8,
             ((bg.b as u16) * (255 - ratio) / 255) as u8 + ((fg.b as u16) * ratio / 255) as u8,
         )
+    }
+
+    #[test]
+    fn hinting_mode_toggles_grid_fit_at_small_size() {
+        // At a small font size the grid-fit path is what Auto selects. Render 'm'
+        // (whose sub-pixel vertical stems are the path's whole reason to exist)
+        // and confirm the mode actually re-routes rasterization end-to-end.
+        let render_mode = |mode| {
+            let mut r = swash(Settings {
+                font_size: 16,
+                hinting: mode,
+                ..settings(false)
+            });
+            render(&mut r, lines_for("m"), None)
+        };
+
+        // Off skips grid-fitting, so its output differs from Auto's; On matches
+        // Auto here (both grid-fit below the threshold).
+        assert_images_differ(
+            &render_mode(crate::HintingMode::Off),
+            &render_mode(crate::HintingMode::Auto),
+        );
+        assert_images_equal(
+            &render_mode(crate::HintingMode::On),
+            &render_mode(crate::HintingMode::Auto),
+        );
     }
 
     /// Total foreground ink (summed distance from the background) over a cell.
